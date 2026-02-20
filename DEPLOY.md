@@ -27,7 +27,7 @@ This repo now includes `render.yaml`.
 Use:
 
 - Build command: `pip install -r requirements.txt`
-- Start command: `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120`
+- Start command: `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120`
 
 ## Notes
 

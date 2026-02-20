@@ -6,6 +6,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, url_for
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import HTTPException
 
 from core.design_suggestor import suggest_design_elements
 from core.image_generation import generate_image_from_prompt
@@ -115,6 +116,11 @@ def _append_history(entry: dict) -> None:
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"ok": True, "service": "neuromonarch"}), 200
 
 
 @app.route("/history", methods=["GET"])
@@ -302,6 +308,27 @@ def chat():
 
     return jsonify(payload)
 
+
+@app.errorhandler(413)
+def handle_request_too_large(_err):
+    if request.path in {"/chat", "/history"}:
+        limit_mb = app.config.get("MAX_CONTENT_LENGTH", 0) // (1024 * 1024)
+        return jsonify({"error": f"Uploaded file is too large. Max size is {limit_mb} MB."}), 413
+    return jsonify({"error": "Request entity too large."}), 413
+
+
+@app.errorhandler(HTTPException)
+def handle_http_exception(err: HTTPException):
+    if request.path in {"/chat", "/history"}:
+        return jsonify({"error": err.description or "Request failed."}), err.code
+    return err
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_exception(err: Exception):
+    if request.path in {"/chat", "/history"}:
+        return jsonify({"error": f"Internal server error: {err}"}), 500
+    return jsonify({"error": "Internal server error."}), 500
 
 
 if __name__ == "__main__":
