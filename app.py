@@ -45,6 +45,7 @@ load_dotenv()
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 PROTOTYPE_DEMO_MODE = os.getenv("PROTOTYPE_DEMO_MODE", "false").lower() in {"1", "true", "yes"}
+IMAGE_RETRIES = int(os.getenv("IMAGE_RETRIES", "1"))
 
 
 def _is_allowed(filename: str) -> bool:
@@ -197,6 +198,7 @@ def chat():
             generate_image_from_prompt(
                 prompt=final_generation_prompt,
                 output_path=design_path,
+                retries=IMAGE_RETRIES,
                 negative_prompt=structured.get("negative_prompt"),
             )
         except Exception as exc:
@@ -228,6 +230,7 @@ def chat():
             generate_image_from_prompt(
                 prompt=demo_prompt,
                 output_path=mockup_path,
+                retries=IMAGE_RETRIES,
                 negative_prompt=(
                     "blurry, low quality, watermark, extra hands, cropped product, text artifacts, deformed cloth"
                 ),

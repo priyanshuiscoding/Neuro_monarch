@@ -116,6 +116,7 @@ def _generate_with_nvidia(prompt: str, output: Path, retries: int, negative_prom
         "NVIDIA_IMAGE_NEGATIVE_PROMPT",
         "low quality, blurry, distorted, watermark, text",
     )
+    request_timeout = int(os.getenv("IMAGE_REQUEST_TIMEOUT_SEC", "45"))
 
     payloads = [
         {
@@ -152,7 +153,12 @@ def _generate_with_nvidia(prompt: str, output: Path, retries: int, negative_prom
         try:
             with _proxy_env_disabled(disable_proxy_env):
                 for payload in payloads:
-                    response = requests.post(endpoint, headers=headers, json=payload, timeout=120)
+                    response = requests.post(
+                        endpoint,
+                        headers=headers,
+                        json=payload,
+                        timeout=request_timeout,
+                    )
                     if response.status_code in {429, 503}:
                         last_error = f"{response.status_code} {response.text}"
                         time.sleep(2)
@@ -193,6 +199,7 @@ def _generate_with_huggingface(
     proxies = None if use_system_proxy else {"http": "", "https": ""}
 
     n_prompt = negative_prompt or "low quality, blurry, distorted, watermark, text"
+    request_timeout = int(os.getenv("IMAGE_REQUEST_TIMEOUT_SEC", "45"))
     for _ in range(max(retries, 1)):
         try:
             with _proxy_env_disabled(disable_proxy_env):
@@ -200,7 +207,7 @@ def _generate_with_huggingface(
                     provider="hf-inference",
                     api_key=api_key,
                     model=model,
-                    timeout=120,
+                    timeout=request_timeout,
                     proxies=proxies,
                 )
                 image = client.text_to_image(
@@ -233,7 +240,7 @@ def _generate_with_huggingface(
 def generate_image_from_prompt(
     prompt: str,
     output_path: str | Path,
-    retries: int = 3,
+    retries: int = 1,
     negative_prompt: str | None = None,
 ) -> Path:
     output = Path(output_path)
