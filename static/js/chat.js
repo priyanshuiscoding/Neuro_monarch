@@ -6,6 +6,17 @@ const sendBtn = document.getElementById("sendBtn");
 const historyList = document.getElementById("historyList");
 const refreshHistoryBtn = document.getElementById("refreshHistoryBtn");
 
+async function parseApiResponse(res) {
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    const payload = await res.json();
+    return { payload, rawText: "" };
+  }
+
+  const rawText = await res.text();
+  return { payload: null, rawText };
+}
+
 function appendBubble(role, text) {
   const article = document.createElement("article");
   article.className = `bubble ${role === "user" ? "bubble-user" : "bubble-bot"}`;
@@ -181,7 +192,11 @@ function renderHistory(items) {
 async function loadHistory() {
   try {
     const res = await fetch("/history");
-    const payload = await res.json();
+    const { payload } = await parseApiResponse(res);
+    if (!res.ok || !payload) {
+      renderHistory([]);
+      return;
+    }
     renderHistory(payload.items || []);
   } catch (_) {
     renderHistory([]);
@@ -199,9 +214,17 @@ async function requestGeneration(messageText) {
       body: formData,
     });
 
-    const payload = await res.json();
+    const { payload, rawText } = await parseApiResponse(res);
     if (!res.ok) {
-      appendBubble("bot", payload.error || "Generation failed.");
+      const msg =
+        (payload && payload.error) ||
+        `Generation failed (${res.status}). ${rawText ? rawText.slice(0, 220) : "Non-JSON response from server."}`;
+      appendBubble("bot", msg);
+      return;
+    }
+
+    if (!payload) {
+      appendBubble("bot", `Generation failed (${res.status}). Server returned non-JSON response.`);
       return;
     }
 
