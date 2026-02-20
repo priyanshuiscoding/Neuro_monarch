@@ -3,7 +3,7 @@ from statistics import mean
 import os
 from collections import deque
 
-from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageMath, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 import numpy as np
 
 # Relative print-safe zones as (x0, y0, x1, y1) ratios of template size.
@@ -16,6 +16,18 @@ PRINT_ZONE_RATIOS = {
     # Back: upper back to just above hem.
     ("Hoodie", "Back"): (0.24, 0.24, 0.76, 0.82),
 }
+
+
+def _distance_to_color_image(rgb: Image.Image, br: int, bg: int, bb: int) -> Image.Image:
+    # Pillow 11+ may not expose ImageMath.eval in all builds; use NumPy for robust distance.
+    arr = np.asarray(rgb, dtype=np.int16)
+    dist = (
+        np.abs(arr[:, :, 0] - br)
+        + np.abs(arr[:, :, 1] - bg)
+        + np.abs(arr[:, :, 2] - bb)
+    ) // 3
+    dist = np.clip(dist, 0, 255).astype(np.uint8)
+    return Image.fromarray(dist, mode="L")
 
 
 def _remove_light_background(img: Image.Image) -> Image.Image:
@@ -42,15 +54,7 @@ def _remove_light_background(img: Image.Image) -> Image.Image:
     bg_b = int(mean(p[2] for p in sampled))
 
     r, g, b = rgb.split()
-    dist_to_bg = ImageMath.eval(
-        "convert((abs(r-br)+abs(g-bg)+abs(b-bb))/3, 'L')",
-        r=r,
-        g=g,
-        b=b,
-        br=bg_r,
-        bg=bg_g,
-        bb=bg_b,
-    )
+    dist_to_bg = _distance_to_color_image(rgb, bg_r, bg_g, bg_b)
 
     low_sat = Image.eval(sat, lambda p: 255 if p < 52 else 0)
     bright = Image.eval(val, lambda p: 255 if p > 206 else 0)
@@ -100,15 +104,7 @@ def _remove_flat_background_if_opaque(img: Image.Image) -> Image.Image:
     bg_b = int(mean(p[2] for p in sampled))
 
     r, g, b = rgb.split()
-    dist = ImageMath.eval(
-        "convert((abs(r-br)+abs(g-bg)+abs(b-bb))/3, 'L')",
-        r=r,
-        g=g,
-        b=b,
-        br=bg_r,
-        bg=bg_g,
-        bb=bg_b,
-    )
+    dist = _distance_to_color_image(rgb, bg_r, bg_g, bg_b)
     hsv = rgb.convert("HSV")
     sat = hsv.split()[1]
     val = hsv.split()[2]
@@ -146,15 +142,7 @@ def _extract_ink_like_cutout(img: Image.Image) -> Image.Image:
     bg_b = int(mean(c[2] for c in corners))
 
     r, g, b = rgb.split()
-    dist = ImageMath.eval(
-        "convert((abs(r-br)+abs(g-bg)+abs(b-bb))/3, 'L')",
-        r=r,
-        g=g,
-        b=b,
-        br=bg_r,
-        bg=bg_g,
-        bb=bg_b,
-    )
+    dist = _distance_to_color_image(rgb, bg_r, bg_g, bg_b)
     gray = rgb.convert("L")
     edge = gray.filter(ImageFilter.FIND_EDGES).filter(ImageFilter.GaussianBlur(0.8))
     sat = rgb.convert("HSV").split()[1]
