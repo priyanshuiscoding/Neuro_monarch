@@ -50,6 +50,15 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 PROTOTYPE_DEMO_MODE = os.getenv("PROTOTYPE_DEMO_MODE", "false").lower() in {"1", "true", "yes"}
 IMAGE_RETRIES = int(os.getenv("IMAGE_RETRIES", "1"))
+IS_RENDER = (
+    os.getenv("RENDER", "").lower() in {"1", "true", "yes"}
+    or bool(os.getenv("RENDER_SERVICE_ID"))
+)
+ENABLE_ANIMATION = os.getenv("ENABLE_ANIMATION", "false" if IS_RENDER else "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 
 def _is_allowed(filename: str) -> bool:
@@ -58,6 +67,10 @@ def _is_allowed(filename: str) -> bool:
 
 def _variant_files(folder: Path, stem: str) -> list[Path]:
     return [folder / f"{stem}.{ext}" for ext in ("png", "jpg", "jpeg", "webp")]
+
+
+def _is_api_request_path(path: str) -> bool:
+    return path.startswith("/chat") or path.startswith("/history")
 
 
 def _resolve_template(garment_type: str, print_side: str, color: str = "White") -> Path:
@@ -245,6 +258,7 @@ def chat():
     mockup_path = GENERATED_DIR / f"mockup_{timestamp}.png"
     print_ready_path = GENERATED_DIR / f"print_ready_{timestamp}.png"
     animation_path = GENERATED_DIR / f"mockup_{timestamp}.gif"
+    animation_error = ""
     logo_to_use = LOGO_PATH if LOGO_PATH.exists() else None
 
     try:
@@ -278,14 +292,21 @@ def chat():
             output_path=str(print_ready_path),
             garment_type=garment_type,
         )
-        create_mockup_animation(mockup_path, animation_path)
+        if ENABLE_ANIMATION:
+            try:
+                create_mockup_animation(mockup_path, animation_path)
+            except Exception as exc:
+                # Animation is optional; skip instead of failing the full generation.
+                animation_error = str(exc)
     except Exception as exc:
         return jsonify({"error": f"Mockup generation failed: {exc}"}), 500
 
     mockup_url = url_for("static", filename=f"generated/{mockup_path.name}")
     design_url = url_for("static", filename=f"generated/{Path(design_path).name}")
     print_ready_url = url_for("static", filename=f"generated/{print_ready_path.name}")
-    animation_url = url_for("static", filename=f"generated/{animation_path.name}")
+    animation_url = (
+        url_for("static", filename=f"generated/{animation_path.name}") if animation_path.exists() else None
+    )
 
     assistant_lines = [
         "Design pipeline complete.",
@@ -299,6 +320,8 @@ def chat():
         f"Estimated cost price: INR {cost_price}",
         f"Recommended selling price: INR {selling_price}",
     ]
+    if animation_error:
+        assistant_lines.append("Animation preview skipped to keep response stable.")
 
     payload = {
         "assistant_message": "\n".join(assistant_lines),
@@ -319,31 +342,34 @@ def chat():
         "animation_url": animation_url,
     }
 
-    _append_history(
-        {
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-            "prompt": prompt,
-            "garment_type": garment_type,
-            "print_side": print_side,
-            "color": color,
-            "size": size,
-            "print_style": print_style,
-            "audience": audience,
-            "cost_price": cost_price,
-            "selling_price": selling_price,
-            "mockup_url": mockup_url,
-            "design_url": design_url,
-            "print_ready_url": print_ready_url,
-            "animation_url": animation_url,
-        }
-    )
+    try:
+        _append_history(
+            {
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "prompt": prompt,
+                "garment_type": garment_type,
+                "print_side": print_side,
+                "color": color,
+                "size": size,
+                "print_style": print_style,
+                "audience": audience,
+                "cost_price": cost_price,
+                "selling_price": selling_price,
+                "mockup_url": mockup_url,
+                "design_url": design_url,
+                "print_ready_url": print_ready_url,
+                "animation_url": animation_url,
+            }
+        )
+    except Exception as exc:
+        app.logger.warning("History write skipped due to error: %s", exc)
 
     return jsonify(payload)
 
 
 @app.errorhandler(413)
 def handle_request_too_large(_err):
-    if request.path in {"/chat", "/history"}:
+    if _is_api_request_path(request.path or ""):
         limit_mb = app.config.get("MAX_CONTENT_LENGTH", 0) // (1024 * 1024)
         return jsonify({"error": f"Uploaded file is too large. Max size is {limit_mb} MB."}), 413
     return jsonify({"error": "Request entity too large."}), 413
@@ -351,14 +377,14 @@ def handle_request_too_large(_err):
 
 @app.errorhandler(HTTPException)
 def handle_http_exception(err: HTTPException):
-    if request.path in {"/chat", "/history"}:
+    if _is_api_request_path(request.path or ""):
         return jsonify({"error": err.description or "Request failed."}), err.code
     return err
 
 
 @app.errorhandler(Exception)
 def handle_unexpected_exception(err: Exception):
-    if request.path in {"/chat", "/history"}:
+    if _is_api_request_path(request.path or ""):
         return jsonify({"error": f"Internal server error: {err}"}), 500
     return jsonify({"error": "Internal server error."}), 500
 

@@ -4,13 +4,31 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: PROTOTYPE_DEMO_MODE
         value: "false"
+      - key: ENABLE_ANIMATION
+        value: "false"
+      - key: IMAGE_RETRIES
+        value: "1"
+      - key: MAX_IMAGE_DIM
+        value: "1024"
+      - key: NVIDIA_IMAGE_WIDTH
+        value: "1024"
+      - key: NVIDIA_IMAGE_HEIGHT
+        value: "1024"
+      - key: HF_IMAGE_WIDTH
+        value: "768"
+      - key: HF_IMAGE_HEIGHT
+        value: "768"
+      - key: IMAGE_REQUEST_TIMEOUT_SEC
+        value: "35"
+      - key: MOCKUP_SQUARE_SIZE
+        value: "768"
       - key: NVIDIA_API_KEY
         sync: false
       - key: HUGGINGFACE_API_KEY

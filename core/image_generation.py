@@ -15,6 +15,33 @@ NVIDIA_DEFAULT_ENDPOINT = "https://ai.api.nvidia.com/v1/genai/{model}"
 NVIDIA_DEFAULT_MODEL = "stabilityai/stable-diffusion-xl"
 
 
+def _bounded_int(value: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = default
+    return max(minimum, min(maximum, parsed))
+
+
+def _generation_dimensions(prefix: str, minimum: int = 512, default: int = 768) -> tuple[int, int]:
+    # Render free instances are memory-constrained; clamp dimensions for reliability.
+    max_dim_default = max(1024, minimum)
+    max_dim = _bounded_int(os.getenv("MAX_IMAGE_DIM", str(max_dim_default)), max_dim_default, minimum, 1536)
+    width = _bounded_int(
+        os.getenv(f"{prefix}_IMAGE_WIDTH", str(default)),
+        default,
+        minimum,
+        max_dim,
+    )
+    height = _bounded_int(
+        os.getenv(f"{prefix}_IMAGE_HEIGHT", str(default)),
+        default,
+        minimum,
+        max_dim,
+    )
+    return width, height
+
+
 @contextmanager
 def _proxy_env_disabled(disable: bool):
     if not disable:
@@ -108,9 +135,8 @@ def _generate_with_nvidia(prompt: str, output: Path, retries: int, negative_prom
     endpoint_template = os.getenv("NVIDIA_IMAGE_ENDPOINT", NVIDIA_DEFAULT_ENDPOINT)
     model = os.getenv("NVIDIA_IMAGE_MODEL", NVIDIA_DEFAULT_MODEL)
     endpoint = _resolve_nvidia_endpoint(endpoint_template, model)
-    width = int(os.getenv("NVIDIA_IMAGE_WIDTH", "1024"))
-    height = int(os.getenv("NVIDIA_IMAGE_HEIGHT", "1024"))
-    steps = int(os.getenv("NVIDIA_IMAGE_STEPS", "30"))
+    width, height = _generation_dimensions("NVIDIA", minimum=1024, default=1024)
+    steps = _bounded_int(os.getenv("NVIDIA_IMAGE_STEPS", "28"), 28, 15, 60)
     guidance = float(os.getenv("NVIDIA_IMAGE_GUIDANCE", "7.0"))
     n_prompt = negative_prompt or os.getenv(
         "NVIDIA_IMAGE_NEGATIVE_PROMPT",
@@ -188,9 +214,8 @@ def _generate_with_huggingface(
         raise RuntimeError("Set HUGGINGFACE_API_KEY in your environment.")
 
     model = os.getenv("HF_IMAGE_MODEL", HF_DEFAULT_MODEL)
-    width = int(os.getenv("HF_IMAGE_WIDTH", "1024"))
-    height = int(os.getenv("HF_IMAGE_HEIGHT", "1024"))
-    steps = int(os.getenv("HF_IMAGE_STEPS", "50"))
+    width, height = _generation_dimensions("HF", minimum=512, default=768)
+    steps = _bounded_int(os.getenv("HF_IMAGE_STEPS", "35"), 35, 15, 80)
     guidance = float(os.getenv("HF_IMAGE_GUIDANCE", "8.0"))
 
     last_error = "Unknown Hugging Face error"
