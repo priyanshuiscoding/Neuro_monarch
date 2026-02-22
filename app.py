@@ -59,6 +59,11 @@ ENABLE_ANIMATION = os.getenv("ENABLE_ANIMATION", "false" if IS_RENDER else "true
     "true",
     "yes",
 }
+ENABLE_PRINT_READY = os.getenv("ENABLE_PRINT_READY", "false" if IS_RENDER else "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 
 
 def _is_allowed(filename: str) -> bool:
@@ -259,6 +264,7 @@ def chat():
     print_ready_path = GENERATED_DIR / f"print_ready_{timestamp}.png"
     animation_path = GENERATED_DIR / f"mockup_{timestamp}.gif"
     animation_error = ""
+    print_ready_error = ""
     logo_to_use = LOGO_PATH if LOGO_PATH.exists() else None
 
     try:
@@ -287,11 +293,16 @@ def chat():
                 garment_type=garment_type,
                 print_side=print_side,
             )
-        generate_print_ready_from_design(
-            design_path=str(design_path),
-            output_path=str(print_ready_path),
-            garment_type=garment_type,
-        )
+        if ENABLE_PRINT_READY:
+            try:
+                generate_print_ready_from_design(
+                    design_path=str(design_path),
+                    output_path=str(print_ready_path),
+                    garment_type=garment_type,
+                )
+            except Exception as exc:
+                # Print-ready export can be expensive; never fail the main response.
+                print_ready_error = str(exc)
         if ENABLE_ANIMATION:
             try:
                 create_mockup_animation(mockup_path, animation_path)
@@ -303,7 +314,9 @@ def chat():
 
     mockup_url = url_for("static", filename=f"generated/{mockup_path.name}")
     design_url = url_for("static", filename=f"generated/{Path(design_path).name}")
-    print_ready_url = url_for("static", filename=f"generated/{print_ready_path.name}")
+    print_ready_url = (
+        url_for("static", filename=f"generated/{print_ready_path.name}") if print_ready_path.exists() else None
+    )
     animation_url = (
         url_for("static", filename=f"generated/{animation_path.name}") if animation_path.exists() else None
     )
@@ -322,6 +335,8 @@ def chat():
     ]
     if animation_error:
         assistant_lines.append("Animation preview skipped to keep response stable.")
+    if print_ready_error:
+        assistant_lines.append("Print-ready export skipped to keep response stable.")
 
     payload = {
         "assistant_message": "\n".join(assistant_lines),
