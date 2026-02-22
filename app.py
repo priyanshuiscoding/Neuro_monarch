@@ -23,6 +23,8 @@ HISTORY_FILE = DATA_DIR / "history.json"
 TSHIRT_PATH = BASE_DIR / "assets" / "tshirts" / "white.png"
 TSHIRT_FRONT_PATH = BASE_DIR / "assets" / "tshirts" / "white_front.png"
 TSHIRT_BACK_PATH = BASE_DIR / "assets" / "tshirts" / "white_back.png"
+TSHIRT_BACK_JPG_PATH = BASE_DIR / "assets" / "tshirts" / "tshirt_back.jpg"
+TSHIRT_BACK_JPEG_PATH = BASE_DIR / "assets" / "tshirts" / "tshirt_back.jpeg"
 HOODIE_PATH = BASE_DIR / "assets" / "hoodies" / "white.png"
 HOODIE_FRONT_PATH = BASE_DIR / "assets" / "hoodies" / "white_front.png"
 HOODIE_BACK_PATH = BASE_DIR / "assets" / "hoodies" / "white_back.png"
@@ -33,6 +35,8 @@ HOODIE_BACK_JPEG_PATH = BASE_DIR / "assets" / "hoodies" / "white_back.jpeg"
 HOODIE_JPG_PATH = BASE_DIR / "assets" / "hoodies" / "white.jpg"
 HOODIE_JPEG_PATH = BASE_DIR / "assets" / "hoodies" / "white.jpeg"
 HOODIE_ALT_DIR = BASE_DIR / "assets" / "hoodie"
+TSHIRT_DIR = BASE_DIR / "assets" / "tshirts"
+HOODIE_DIR = BASE_DIR / "assets" / "hoodies"
 LOGO_PATH = BASE_DIR / "assets" / "branding" / "back_neck_logo.png"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 
@@ -52,9 +56,21 @@ def _is_allowed(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def _resolve_template(garment_type: str, print_side: str) -> Path:
+def _variant_files(folder: Path, stem: str) -> list[Path]:
+    return [folder / f"{stem}.{ext}" for ext in ("png", "jpg", "jpeg", "webp")]
+
+
+def _resolve_template(garment_type: str, print_side: str, color: str = "White") -> Path:
+    color_key = (color or "White").strip().lower()
+    if color_key not in {"white", "black"}:
+        color_key = "white"
+
     if garment_type == "Hoodie" and print_side == "Front":
-        candidates = [
+        candidates = []
+        for folder in (HOODIE_DIR, HOODIE_ALT_DIR):
+            candidates.extend(_variant_files(folder, f"{color_key}_front"))
+            candidates.extend(_variant_files(folder, color_key))
+        candidates.extend([
             HOODIE_FRONT_PATH,
             HOODIE_FRONT_JPG_PATH,
             HOODIE_FRONT_JPEG_PATH,
@@ -67,9 +83,13 @@ def _resolve_template(garment_type: str, print_side: str) -> Path:
             HOODIE_ALT_DIR / "white.png",
             HOODIE_ALT_DIR / "white.jpg",
             HOODIE_ALT_DIR / "white.jpeg",
-        ]
+        ])
     elif garment_type == "Hoodie" and print_side == "Back":
-        candidates = [
+        candidates = []
+        for folder in (HOODIE_DIR, HOODIE_ALT_DIR):
+            candidates.extend(_variant_files(folder, f"{color_key}_back"))
+            candidates.extend(_variant_files(folder, color_key))
+        candidates.extend([
             HOODIE_BACK_PATH,
             HOODIE_BACK_JPG_PATH,
             HOODIE_BACK_JPEG_PATH,
@@ -82,11 +102,20 @@ def _resolve_template(garment_type: str, print_side: str) -> Path:
             HOODIE_ALT_DIR / "white.png",
             HOODIE_ALT_DIR / "white.jpg",
             HOODIE_ALT_DIR / "white.jpeg",
-        ]
+        ])
     elif garment_type == "T-Shirt" and print_side == "Back":
-        candidates = [TSHIRT_BACK_PATH, TSHIRT_PATH]
+        candidates = (
+            _variant_files(TSHIRT_DIR, f"{color_key}_back")
+            + [TSHIRT_BACK_PATH, TSHIRT_BACK_JPG_PATH, TSHIRT_BACK_JPEG_PATH]
+            + _variant_files(TSHIRT_DIR, color_key)
+            + [TSHIRT_PATH]
+        )
     else:
-        candidates = [TSHIRT_FRONT_PATH, TSHIRT_PATH]
+        candidates = (
+            _variant_files(TSHIRT_DIR, f"{color_key}_front")
+            + _variant_files(TSHIRT_DIR, color_key)
+            + [TSHIRT_FRONT_PATH, TSHIRT_PATH]
+        )
 
     for item in candidates:
         if item.exists():
@@ -156,7 +185,7 @@ def chat():
     if print_side not in {"Front", "Back"}:
         return jsonify({"error": "Invalid print side selected."}), 400
 
-    if color not in {"White", "Black", "Navy", "Red", "Green"}:
+    if color not in {"White", "Black"}:
         return jsonify({"error": "Invalid color selected."}), 400
 
     if size not in {"S", "M", "L", "XL", "XXL"}:
@@ -209,7 +238,7 @@ def chat():
     template_path = None
     if not PROTOTYPE_DEMO_MODE:
         try:
-            template_path = _resolve_template(garment_type, print_side)
+            template_path = _resolve_template(garment_type, print_side, color=color)
         except FileNotFoundError as exc:
             return jsonify({"error": str(exc)}), 500
 

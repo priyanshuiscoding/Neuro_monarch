@@ -258,7 +258,7 @@ const flow = [
   {
     id: "color",
     question: "Pick garment color:",
-    options: ["Black", "White", "Navy", "Red", "Green"],
+    options: ["Black", "White"],
     apply: (value) => setField("color", value),
   },
   {
