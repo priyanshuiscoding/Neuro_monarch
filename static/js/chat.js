@@ -305,7 +305,7 @@ function askCurrentStep() {
   clearOptions();
   if (flowIndex >= flow.length) {
     appendQuestion("Let's bring your thoughts to reality. Describe your design idea.");
-    enableTextInput("Example: Anime couple passionately kissing, dramatic lighting, premium style");
+    enableTextInput("Example: Simple anime character portrait, clean line art, minimal background");
     return;
   }
 
