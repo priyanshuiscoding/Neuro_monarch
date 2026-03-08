@@ -8,14 +8,87 @@ import numpy as np
 
 # Relative print-safe zones as (x0, y0, x1, y1) ratios of template size.
 PRINT_ZONE_RATIOS = {
-    ("T-Shirt", "Front"): (0.35, 0.24, 0.65, 0.62),
-    ("T-Shirt", "Back"): (0.33, 0.22, 0.67, 0.66),
+    ("T-Shirt", "Front"): (0.30, 0.22, 0.70, 0.66),
+    ("T-Shirt", "Back"): (0.29, 0.20, 0.71, 0.68),
     # Tuned for provided person-worn hoodie photos.
     # Front: chest to near-kangaroo pocket area.
     ("Hoodie", "Front"): (0.34, 0.27, 0.68, 0.80),
     # Back: upper back to just above hem.
     ("Hoodie", "Back"): (0.24, 0.24, 0.76, 0.82),
+    ("Pants", "Front"): (0.32, 0.16, 0.68, 0.86),
+    ("Pants", "Back"): (0.32, 0.16, 0.68, 0.86),
+    # Scarf should be fully designable with tiny bleed-safe margins.
+    ("Scarf", "Full"): (0.03, 0.03, 0.97, 0.97),
+    ("Scarf", "Front"): (0.03, 0.03, 0.97, 0.97),
+    ("Scarf", "Back"): (0.03, 0.03, 0.97, 0.97),
 }
+
+
+def _base_garment_color(color: str) -> tuple[int, int, int]:
+    return (35, 35, 35) if (color or "").strip().lower() == "black" else (245, 245, 245)
+
+
+def create_flat_garment_template(
+    garment_type: str,
+    color: str,
+    output_path: str | Path,
+    print_side: str = "Front",
+) -> Path:
+    kind = (garment_type or "T-Shirt").strip()
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fabric = _base_garment_color(color)
+
+    if kind == "Scarf":
+        w, h = 1024, 1024
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.rounded_rectangle(
+            (70, 100, w - 70, h - 100),
+            radius=28,
+            fill=(*fabric, 255),
+            outline=(120, 120, 120, 255),
+            width=3,
+        )
+        for y in range(140, h - 120, 24):
+            alpha = 20 if y % 48 == 0 else 12
+            draw.line((88, y, w - 88, y), fill=(255, 255, 255, alpha), width=1)
+    elif kind == "Pants":
+        w, h = 1024, 1024
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        left = [(360, 120), (470, 120), (500, 880), (390, 920), (315, 910), (295, 220)]
+        right = [(554, 120), (664, 120), (730, 220), (709, 910), (634, 920), (523, 880)]
+        draw.polygon(left, fill=(*fabric, 255))
+        draw.polygon(right, fill=(*fabric, 255))
+        draw.rectangle((470, 120, 554, 168), fill=(max(0, fabric[0] - 10), max(0, fabric[1] - 10), max(0, fabric[2] - 10), 255))
+        draw.line((315, 220, 360, 120, 664, 120, 730, 220), fill=(125, 125, 125, 210), width=2)
+    else:
+        # Conservative t-shirt fallback silhouette.
+        w, h = 1024, 1024
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        poly = [
+            (300, 160),
+            (430, 160),
+            (460, 120),
+            (564, 120),
+            (594, 160),
+            (724, 160),
+            (815, 288),
+            (748, 360),
+            (700, 320),
+            (700, 900),
+            (324, 900),
+            (324, 320),
+            (276, 360),
+            (209, 288),
+        ]
+        draw.polygon(poly, fill=(*fabric, 255))
+        draw.arc((430, 110, 594, 235), start=20, end=160, fill=(120, 120, 120, 220), width=4)
+
+    img.save(out)
+    return out
 
 
 def _distance_to_color_image(rgb: Image.Image, br: int, bg: int, bb: int) -> Image.Image:
@@ -294,42 +367,58 @@ def _resolve_zone(
     garment_img: Image.Image | None = None,
 ) -> tuple[int, int, int, int]:
     gw, gh = garment_size
+    side_key = "Full" if garment_type == "Scarf" else print_side
 
-    # Hoodie: derive print zone from detected person/hoodie region, not full image frame.
-    if garment_type == "Hoodie" and garment_img is not None:
+    auto_zone = os.getenv("AUTO_SUBJECT_ZONE", "true").lower() in {"1", "true", "yes"}
+    if garment_type == "Hoodie" and not auto_zone:
         auto_zone = os.getenv("AUTO_HOODIE_ZONE", "true").lower() in {"1", "true", "yes"}
-        if auto_zone:
-            bbox = _estimate_subject_bbox(garment_img)
-            if bbox:
-                sx0, sy0, sx1, sy1 = bbox
-                bw = max(1, sx1 - sx0)
-                bh = max(1, sy1 - sy0)
+    if auto_zone and garment_img is not None:
+        bbox = _estimate_subject_bbox(garment_img)
+        if bbox:
+            sx0, sy0, sx1, sy1 = bbox
+            bw = max(1, sx1 - sx0)
+            bh = max(1, sy1 - sy0)
+            if garment_type == "Hoodie":
                 if print_side == "Front":
                     return (
-                        int(sx0 + bw * 0.21),
-                        int(sy0 + bh * 0.23),
-                        int(sx0 + bw * 0.79),
-                        int(sy0 + bh * 0.84),
+                        int(sx0 + bw * 0.23),
+                        int(sy0 + bh * 0.22),
+                        int(sx0 + bw * 0.77),
+                        int(sy0 + bh * 0.82),
                     )
                 return (
-                    int(sx0 + bw * 0.18),
+                    int(sx0 + bw * 0.20),
                     int(sy0 + bh * 0.18),
-                    int(sx0 + bw * 0.82),
+                    int(sx0 + bw * 0.80),
                     int(sy0 + bh * 0.86),
                 )
+            # T-Shirt placement from detected torso region.
+            if print_side == "Front":
+                return (
+                    int(sx0 + bw * 0.24),
+                    int(sy0 + bh * 0.18),
+                    int(sx0 + bw * 0.76),
+                    int(sy0 + bh * 0.68),
+                )
+            return (
+                int(sx0 + bw * 0.22),
+                int(sy0 + bh * 0.15),
+                int(sx0 + bw * 0.78),
+                int(sy0 + bh * 0.72),
+            )
 
-    override_key = f"PRINT_ZONE_{garment_type.upper().replace('-', '_')}_{print_side.upper()}"
+    override_key = f"PRINT_ZONE_{garment_type.upper().replace('-', '_')}_{side_key.upper()}"
     override = os.getenv(override_key)
     if override:
         try:
             rx0, ry0, rx1, ry1 = [float(x.strip()) for x in override.split(",")]
         except Exception:
             rx0, ry0, rx1, ry1 = PRINT_ZONE_RATIOS.get(
-                (garment_type, print_side), PRINT_ZONE_RATIOS[("T-Shirt", "Front")]
+                (garment_type, side_key), PRINT_ZONE_RATIOS[("T-Shirt", "Front")]
             )
     else:
         rx0, ry0, rx1, ry1 = PRINT_ZONE_RATIOS.get(
-            (garment_type, print_side), PRINT_ZONE_RATIOS[("T-Shirt", "Front")]
+            (garment_type, side_key), PRINT_ZONE_RATIOS[("T-Shirt", "Front")]
         )
     return int(gw * rx0), int(gh * ry0), int(gw * rx1), int(gh * ry1)
 
@@ -449,13 +538,23 @@ def export_print_ready_art(
     garment_type: str = "T-Shirt",
 ) -> str:
     # 4500x5400 @300 DPI is a common DTG-friendly canvas.
-    canvas = Image.new("RGBA", (4500, 5400), (0, 0, 0, 0))
-    max_w = 3600 if garment_type == "T-Shirt" else 3400
-    max_h = 4200 if garment_type == "T-Shirt" else 4000
+    if garment_type == "Scarf":
+        canvas = Image.new("RGBA", (5400, 5400), (0, 0, 0, 0))
+        max_w, max_h = 5200, 5200
+        y_offset = (canvas.height - max_h) // 2
+    elif garment_type == "Pants":
+        canvas = Image.new("RGBA", (4500, 5400), (0, 0, 0, 0))
+        max_w, max_h = 3000, 4700
+        y_offset = 350
+    else:
+        canvas = Image.new("RGBA", (4500, 5400), (0, 0, 0, 0))
+        max_w = 3600 if garment_type == "T-Shirt" else 3400
+        max_h = 4200 if garment_type == "T-Shirt" else 4000
+        y_offset = 620
 
     art = ImageOps.contain(design_rgba, (max_w, max_h), method=Image.Resampling.LANCZOS)
     x = (canvas.width - art.width) // 2
-    y = 620
+    y = y_offset
     canvas.paste(art, (x, y), art)
 
     output = Path(output_path)
@@ -514,6 +613,12 @@ def generate_mockup(
     if garment_type == "Hoodie":
         fill_ratio = float(os.getenv("PRINT_FILL_HOODIE", "0.98"))
         margin_ratio = float(os.getenv("PRINT_MARGIN_HOODIE", "0.01"))
+    elif garment_type == "Scarf":
+        fill_ratio = float(os.getenv("PRINT_FILL_SCARF", "0.995"))
+        margin_ratio = float(os.getenv("PRINT_MARGIN_SCARF", "0.002"))
+    elif garment_type == "Pants":
+        fill_ratio = float(os.getenv("PRINT_FILL_PANTS", "0.94"))
+        margin_ratio = float(os.getenv("PRINT_MARGIN_PANTS", "0.025"))
     else:
         fill_ratio = float(os.getenv("PRINT_FILL_TSHIRT", "0.96"))
         margin_ratio = float(os.getenv("PRINT_MARGIN_TSHIRT", "0.03"))
@@ -554,7 +659,7 @@ def generate_mockup(
 
     garment.paste(printed, (px, py), printed)
 
-    if logo_path and Path(logo_path).exists() and print_side == "Front":
+    if logo_path and Path(logo_path).exists() and print_side == "Front" and garment_type in {"T-Shirt", "Hoodie"}:
         logo = Image.open(logo_path).convert("RGBA")
         logo = ImageOps.contain(logo, (58, 34), method=Image.Resampling.LANCZOS)
         garment.paste(logo, (120, 96), logo)

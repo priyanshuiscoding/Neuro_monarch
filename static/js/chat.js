@@ -113,25 +113,30 @@ function appendResultCard(host, payload) {
   const images = document.createElement("div");
   images.className = "result-images";
 
-  if (payload.design_url) {
-    const designImg = document.createElement("img");
-    designImg.src = payload.design_url;
-    designImg.alt = "Generated design";
-    images.appendChild(designImg);
-  }
-
-  if (payload.mockup_url) {
-    const mockupImg = document.createElement("img");
-    mockupImg.src = payload.mockup_url;
-    mockupImg.alt = "Generated t-shirt mockup";
-    images.appendChild(mockupImg);
-  }
-
-  if (payload.animation_url) {
-    const animImg = document.createElement("img");
-    animImg.src = payload.animation_url;
-    animImg.alt = "Animated mockup preview";
-    images.appendChild(animImg);
+  const isScarf = (payload.garment_type || "").toLowerCase() === "scarf";
+  if (isScarf) {
+    // Scarf: exactly two previews (flat scarf + mannequin scarf).
+    if (payload.design_url) {
+      const flatImg = document.createElement("img");
+      flatImg.src = payload.design_url;
+      flatImg.alt = "Flat scarf print preview";
+      images.appendChild(flatImg);
+    }
+    if (payload.mockup_url) {
+      const mannequinImg = document.createElement("img");
+      mannequinImg.src = payload.mockup_url;
+      mannequinImg.alt = "Mannequin scarf preview";
+      images.appendChild(mannequinImg);
+    }
+  } else {
+    // Other garments: one preview only.
+    const primaryUrl = payload.mockup_url || payload.design_url || payload.animation_url;
+    if (primaryUrl) {
+      const primaryImg = document.createElement("img");
+      primaryImg.src = primaryUrl;
+      primaryImg.alt = "Generated apparel preview";
+      images.appendChild(primaryImg);
+    }
   }
 
   card.appendChild(images);
@@ -208,11 +213,18 @@ async function requestGeneration(messageText) {
   const formData = new FormData(chatForm);
   sendBtn.disabled = true;
   sendBtn.textContent = "Generating...";
+  chatInput.disabled = true;
+  let timeoutId = null;
   try {
+    const controller = new AbortController();
+    const timeoutMs = 120000;
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch("/chat", {
       method: "POST",
       body: formData,
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     const { payload, rawText } = await parseApiResponse(res);
     if (!res.ok) {
@@ -220,11 +232,13 @@ async function requestGeneration(messageText) {
         (payload && payload.error) ||
         `Generation failed (${res.status}). ${rawText ? rawText.slice(0, 220) : "Non-JSON response from server."}`;
       appendBubble("bot", msg);
+      enableTextInput("Describe your design idea...");
       return;
     }
 
     if (!payload) {
       appendBubble("bot", `Generation failed (${res.status}). Server returned non-JSON response.`);
+      enableTextInput("Describe your design idea...");
       return;
     }
 
@@ -233,9 +247,15 @@ async function requestGeneration(messageText) {
     await loadHistory();
     askRevisionChoice();
   } catch (err) {
-    appendBubble("bot", `Request failed: ${err.message}`);
+    const msg = err.name === "AbortError" ? "Generation timed out. Please retry with a shorter prompt." : `Request failed: ${err.message}`;
+    appendBubble("bot", msg);
+    enableTextInput("Describe your design idea...");
   } finally {
+    if (timeoutId) clearTimeout(timeoutId);
     sendBtn.textContent = "Send";
+    if (!chatInput.disabled) {
+      sendBtn.disabled = false;
+    }
   }
 }
 
@@ -249,23 +269,38 @@ const flow = [
   {
     id: "garment_type",
     question: "What are we designing today?",
-    options: ["T-Shirt", "Hoodie"],
+    options: ["T-Shirt", "Hoodie", "Pants", "Scarf"],
     apply: (value) => {
       setField("garment_type", value);
+      if (value === "Scarf") {
+        setField("print_side", "Full");
+      } else if (getField("print_side") === "Full") {
+        setField("print_side", "Front");
+      }
       return true;
     },
   },
   {
     id: "color",
     question: "Pick garment color:",
-    options: ["Black", "White"],
+    options: ["White", "Black"],
     apply: (value) => setField("color", value),
   },
   {
     id: "print_side",
     question: "Print side preference?",
-    options: ["Front", "Back"],
-    apply: (value) => setField("print_side", value),
+    options: ["Front", "Back", "Full"],
+    apply: (value) => {
+      const garment = getField("garment_type");
+      if (garment !== "Scarf" && value === "Full") {
+        return false;
+      }
+      if (garment === "Scarf" && value !== "Full") {
+        return false;
+      }
+      setField("print_side", value);
+      return true;
+    },
   },
   {
     id: "fit",
@@ -310,9 +345,15 @@ function askCurrentStep() {
   }
 
   const step = flow[flowIndex];
-  appendQuestion(`${step.question} Options: ${step.options.join(", ")}`);
+  let options = step.options;
+  if (step.id === "print_side") {
+    const garment = getField("garment_type");
+    options = garment === "Scarf" ? ["Full"] : ["Front", "Back"];
+  }
+
+  appendQuestion(`${step.question} Options: ${options.join(", ")}`);
   renderOptions(
-    step.options.map((label) => ({ label })),
+    options.map((label) => ({ label })),
     (item) => {
       appendBubble("user", item.label);
       const result = step.apply(item.label);

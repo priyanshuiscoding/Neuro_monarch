@@ -16,9 +16,12 @@ def calculate_price(material, tshirt_type, garment_type="T-Shirt"):
     garment_cost = {
         "T-Shirt": 0,
         "Hoodie": 180,
+        "Pants": 220,
+        "Scarf": 90,
     }
-
-    cost_price = base_cost + material_cost[material] + type_cost[tshirt_type] + garment_cost[garment_type]
-    selling_price = cost_price * 1.8
+    type_extra = type_cost.get(tshirt_type, 0) if garment_type in {"T-Shirt", "Hoodie"} else 0
+    cost_price = base_cost + material_cost.get(material, 100) + type_extra + garment_cost.get(garment_type, 0)
+    markup = 2.0 if garment_type in {"Hoodie", "Pants"} else 1.8
+    selling_price = cost_price * markup
 
     return int(cost_price), int(selling_price)
